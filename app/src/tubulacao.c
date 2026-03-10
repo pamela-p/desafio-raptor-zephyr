@@ -5,7 +5,11 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
+#include <zephyr/sys/atomic.h> // Biblioteca de váriaveis atômicas
 #include "tubulacao.h" // Importando a definição das estruturas
+
+/// 1 = Valvula de Entrada Aberta (Pressão sobe), 0 = Fechada/Consumo (Pressão desce)
+atomic_t estado_valvula = ATOMIC_INIT(1);
 
 /* Inicializa estaticamente uma Message Queue no Zephyr
  * Parâmetros da macro K_MSGQ_DEFINE:
@@ -50,14 +54,18 @@ void sensor_thread(void *p1, void *p2,void *p3){
 
 	// while(1){
     for (int i=0; i < 30; i++){
-		// simulação da variação
+		/*Lógica de malha fechada
+		 * Lê de forma segura o que o FSM decidiu fazer com a válvula */
+        if (atomic_get(&estado_valvula) == 1){
+            variacao = 15; // se válvula aberta = enchendo, pressão sobe
+        } else{ 
+            variacao = -15; // se válvula fechada = consumo natural, pressão desce
+        }
+
 		pressao_atual += variacao;
 
- 
-		// Inverte o sinal da variação ao atingir limites críticos
-		if (pressao_atual > 150 || pressao_atual < 50){
-			variacao = -variacao;
-		} 
+		//Trava de segurança para pressão não nagativar
+		if (pressao_atual < 0) pressao_atual = 0;
 
 		// Encapsulamento dos dados
 		data.pressao_da_agua = pressao_atual;
@@ -71,6 +79,7 @@ void sensor_thread(void *p1, void *p2,void *p3){
 
         // Cadência desimulação 
         k_msleep(3000);
+
 	}
 
     printk("\n[SISTEMA] Fim da simulacao de leitura (Limite de 30 atingido).\n");
@@ -105,37 +114,40 @@ void alerta_thread(void *p1, void *p2, void *p3){
 		 * ocorram apenas nas muanças de estado, evitando a emissão de comandos redundates.
 		*/
 		switch(estado_atual){
-			case ESTADO_NORMAL:
-				if (pressao >= 130){
-					estado_atual = ESTADO_PRESSAO_ALTA;
-					printk("MUDANCA: Normal -> ALTO! Acionar valvula.\n\n");
-				}else if(pressao <= 70){
-					estado_atual = ESTADO_PRESSAO_BAIXA;
-					printk("MUDANCA: Normal -> BAIXO! Vericar vazamento.\n\n");
-				}else{
-					printk("Status: Normal.\n\n");
-				}
-				break;
-			
-			case ESTADO_PRESSAO_ALTA:
-				if (pressao < 130){
-					estado_atual = ESTADO_NORMAL;
-					printk("MUDANCA: Alto -> NORMAL! Fechar valvula.\n\n");
-				}else {
-					printk("Status: Pressao ALTA continua.\n\n");
-				}
-				break;
-			
-			case ESTADO_PRESSAO_BAIXA:
-				if (pressao > 70){
-					estado_atual = ESTADO_NORMAL;
-					printk("MUDANCA: Baixo -> NORMAL! Fluxo estabilizado.\n\n");
-				}else {
-					printk("Status: Pressao BAIXA continua.\n\n");
-				}
-				break;
-		}
+            case ESTADO_NORMAL:
+                if (pressao >= 130){
+                    estado_atual = ESTADO_PRESSAO_ALTA;
 
+                    //FSM Fecha a entrada de água (0)
+                    atomic_set(&estado_valvula, 0);
+
+                    printk("MUDANCA: Normal -> ALTO! Fechar entrada de agua.\n\n");
+                }else if(pressao <= 70){
+                    estado_atual = ESTADO_PRESSAO_BAIXA;
+
+                    //FSM Abre a entrada de água (1)
+                    atomic_set(&estado_valvula, 1);
+
+                    printk("MUDANCA: Normal -> BAIXO! Ligar bomba/entrada.\n\n");
+                }else{
+                    printk("Status: Normal.\n\n");
+                }
+                break;
+            
+            case ESTADO_PRESSAO_ALTA:
+                if (pressao < 130){
+                    estado_atual = ESTADO_NORMAL;
+                    printk("MUDANCA: Alto -> NORMAL! Pressao caindo...\n\n");
+                }
+                break;
+            
+            case ESTADO_PRESSAO_BAIXA:
+                if (pressao > 70){
+                    estado_atual = ESTADO_NORMAL;
+                    printk("MUDANCA: Baixo -> NORMAL! Pressao subindo...\n\n");
+                }
+                break;
+        }
 	}
 }
 
