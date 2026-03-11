@@ -1,0 +1,25 @@
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+    /* Criando o Controlador GPIO Virtual */
+    gpio0: virtual_gpio {
+        compatible = "zephyr,gpio-emul";
+        gpio-controller;
+        #gpio-cells = <2>;
+        status = "okay";
+    };
+
+    /* Criando o apelido para o código C */
+    aliases {
+        led0 = &valvula_led;
+    };
+
+    /* Criando o pino que simula o Relé/LED */
+    leds {
+        compatible = "gpio-leds";
+        valvula_led: led0 {
+            gpios = <&gpio0 0 GPIO_ACTIVE_HIGH>;
+            label = "LED Valvula";
+        };
+    };
+};

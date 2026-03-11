@@ -6,6 +6,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/atomic.h> // Biblioteca de váriaveis atômicas
+#include <zephyr/drivers/gpio.h> // Biblioteca para controle de pinos (Hardware)
 #include "tubulacao.h" // Importando a definição das estruturas
 
 /// 1 = Valvula de Entrada Aberta (Pressão sobe), 0 = Fechada/Consumo (Pressão desce)
@@ -19,6 +20,13 @@ atomic_t estado_valvula = ATOMIC_INIT(1);
  * 4. Alinhamnto de memória: 4 bytes (QEMU lê a memoria de 4 em 4 bytes, dessa forma leitura rápida é otimizada)
 */
 K_MSGQ_DEFINE(sensor_msgq, sizeof(struct sensor_data_type), 13, 4);
+
+/*Configuração do GPIO
+ * Pega o nó da devicetree usando alias 'led0'*/
+#define LED0_NODE DT_ALIAS(led0)
+
+//Estrutura de pino baseada em devicetree
+static const struct gpio_dt_spec valvula_gpio = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 
 /*******************************************************************************
  * Máquina de Estados Finita (FSM)
@@ -92,11 +100,21 @@ void sensor_thread(void *p1, void *p2,void *p3){
 void alerta_thread(void *p1, void *p2, void *p3){
 	struct sensor_data_type data_recebida;
 
-	// Inicialização segura da FSM
+	// Inicialização segura da FSMcom "memória"
 	estado_reservatorio_t estado_atual = ESTADO_NORMAL;
+
+	// Inicializando a GPIO
+    // Verifica e configura o hardware apenas uma vez
+    if (!gpio_is_ready_dt(&valvula_gpio)) {
+        printk("Erro: Dispositivo GPIO nao esta pronto.\n");
+        return;
+    }
+    // Configura o pino como saída de energia, iniciando desligado
+    gpio_pin_configure_dt(&valvula_gpio, GPIO_OUTPUT_INACTIVE);
 
 	printk("\n Iniciando monitoramento de pressao via FSM\n\n");
 
+	//Apenas leitura e reação
 	while(1){
 		/*
 		 * Bloqueia a thread atual e aguarda a chegada de novas mesndagens na fila
@@ -118,15 +136,21 @@ void alerta_thread(void *p1, void *p2, void *p3){
                 if (pressao >= 130){
                     estado_atual = ESTADO_PRESSAO_ALTA;
 
-                    //FSM Fecha a entrada de água (0)
+                    // FSM Lógica: Fecha a entrada de água (0)
                     atomic_set(&estado_valvula, 0);
+
+                    // GPIO Físico: Corta a energia do pino (Desliga a bomba/relé)
+                    gpio_pin_set_dt(&valvula_gpio, 0);
 
                     printk("MUDANCA: Normal -> ALTO! Fechar entrada de agua.\n\n");
                 }else if(pressao <= 70){
                     estado_atual = ESTADO_PRESSAO_BAIXA;
 
-                    //FSM Abre a entrada de água (1)
+                    // FSM Lógica: Abre a entrada de água (1)
                     atomic_set(&estado_valvula, 1);
+
+                    // GPIO Físico: Manda energia para o pino (Liga a bomba/relé)
+                    gpio_pin_set_dt(&valvula_gpio, 1);
 
                     printk("MUDANCA: Normal -> BAIXO! Ligar bomba/entrada.\n\n");
                 }else{

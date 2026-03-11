@@ -9,7 +9,7 @@
 
 
 ## 1. Introdução
-Este projeto tem como objetivo elaborar uma solução em ambiente de simulação usando QEMU para o Sistema Operacional de Tempo Real (RTOS) ZephyrOS. O escopo principal consiste em exibir a mensagem "Hello World! This is Raptor!" em ambiente de virtualização. Além do requisito obrigatório, foi desenvolvida uma *feature* adicional utilizando *Message Queues* e uma *Finite State Machine*(FSM) para simular a telemetria, o monitoramento e a lógica estruturada de alertas baseada na pressão de água de um reservatório.
+Este projeto tem como objetivo elaborar uma solução em ambiente de simulação usando QEMU para o Sistema Operacional de Tempo Real (RTOS) ZephyrOS. O escopo principal consiste em exibir a mensagem "Hello World! This is Raptor!" em ambiente de virtualização. Além do requisito obrigatório, foi desenvolvida uma *feature* adicional utilizando *Message Queues* e uma *Finite State Machine*(FSM) para simular a telemetria, o monitoramento e a lógica estruturada de alertas e o **acionamento de hardware (GPIO)** baseada na pressão de água de um reservatório.
 
 
 ## 2. Ambiente de Desenvolvimento
@@ -32,6 +32,7 @@ Como *feature* adicional, foi desenvolvida uma arquitetura avançada de produtor
 * **Thread Consumidora (`alerta_thread`):** Aguarda a chegada das mensagens e implementa a lógica de decisão através de uma Máquina de Estados Finita (*FSM - Finite State Machine*), evitando a complexidade de múltiplos blocos `if/else`.
 * **Malha de Controle com Histerese:** A FSM atua no sistema simulando uma bomba/válvula de entrada com uma janela de tolerância (histerese). A bomba liga para encher o tanque (pressão sobe) e desliga ao atingir o limite de segurança superior (130 PSI), permitindo que a pressão caia naturalmente simulando o consumo da água, até atingir o limite inferior (70 PSI), reiniciando o ciclo de forma autônoma.
 * **Sincronização Segura com Variáveis Atômicas:** Foi utilizada a biblioteca `<zephyr/sys/atomic.h>` para garantir que as *threads* conversem em total segurança estrutural bidirecional (Fila de Mensagens em um sentido, Variável Atômica no outro). Isso previne cenários de Condição de Corrida (*Race Condition*), pois impede que uma *thread* tente ler a posição da válvula no exato momento em que a outra a escreve, garantindo operações indivisíveis pelo processador.
+* **Integração de Hardware (GPIO Virtual):** Como o desenvolvimento ocorreu em um emulador (`qemu_x86`) sem a presença de uma placa física (como a família STM32), optou-se por abstrair o hardware através da *Devicetree*. Foi criado um arquivo `app.overlay` para injetar um pino de saída virtual no sistema. Através da biblioteca `<zephyr/drivers/gpio.h>`, a FSM envia comandos elétricos reais para esse pino virtual, simulando o acionamento físico de uma válvula solenoide ou relé.
 * **Controle de Estados:** Foi criado um `enum` para que a FSM tenha "memória" do evento atual. O uso do `enum` facilita a leitura humana e otimiza a compilação, já que o processador substitui as palavras por números automaticamente. O `typedef` declara a variável de forma direta com a convenção `_t`.
 * **Transições Seguras:** Utilizando um `switch/case`, o sistema possui transições claras: aciona mecanismos apenas na mudança de estado e emite alertas contínuos sem redundância de comandos de hardware.
 * **Estrutura de Dados:** Os dados trafegam na fila envelopados em uma `struct`, garantindo organização, clareza e alta escalabilidade para a adição de novos sensores no futuro.
@@ -55,6 +56,8 @@ Durante a execução do projeto, alguns desafios de configuração e sintaxe for
  * *Solução:* Correção sintática da inicialização da `struct`e inclusão da função nativa `k_msleep()` para cadenciar a simulação de forma visível e realista no terminal.
 * **Comportamento inesperado de temporização no emulador:** Durante a execução das *threads* de telemetria, foi observado que a simulação das leituras não respeitou o tempo de pausa estipulado pela função `k_msleep()`, rodando o log no console em velocidade acelerada, dificultando a leitura humana.
     * *Solução e Decisão de Projeto:* A primeira suspeita foi de um possível *Stack Overflow*, então o primeiro passo foi aumentar o tamanho da pilha das *threads* de 1024 para 4096 bytes. Como os logs continuavam acelerados, concluí que era uma instabilidade no relógio de sistema do hardware virtualizado `qemu_x86`rodando via WSL2, após pesquisar foi encontrado que rodar o QEMU no WSL (especialmente no WSL2) poderia causar problemas relacionados a `Systick`, contagem de tempo e interrupções temporalizada. Optou-se por manter a implementação, pois o código cumpre os requisitos de arquitetura, uso nativo de *Message Queues* e *Threads* do Zephyr. como solução prática para avaliação, a thread produtor foi limitada a um laço `for` de iterações limitadas (mantendo o `while(1)`padrão de RTOS comentado e documentado no código-fonte), garantindo que o avaliador consiga visualizar os alertas no console.
+* **Ausência de Hardware Nativo no Emulador (Erro GPIO):** Ao tentar implementar a abstração de hardware com GPIO na Devicetree, a compilação falhou com o erro `undefined node label 'gpio0'`.
+    * *Solução:* Foi concluido que o `qemu_x86` simula a placa-mãe de um PC, que não possui pinos GPIO nativos. Para resolver, foi fabricado um controlador de pinos virtual (emulado) no arquivo `app.overlay` através do nó `compatible = "zephyr,gpio-emul"`. Em seguida, as diretivas `CONFIG_EMUL=y` e `CONFIG_GPIO_EMUL=y` foram adicionadas ao `prj.conf` para alertar o sistema de compilação sobre o uso de drivers virtuais.
 
 
 ## 5. Instrução de Execução
@@ -76,16 +79,22 @@ Após garantir a configuração do ecossistema Zephyr, siga os passos abaixo no 
 
 2. Compile o projeto voltado para arquitetura x86 simulada:
 ```Bash
-    west build -b qemu_x86 app
+    west build -b qemu_x86 app -p
 ```
 
 
-3. Execute no emulador QEMU (terminal aberto an pasta):
+3. Execute no emulador QEMU (terminal aberto na pasta):
 ```Bash
     west build -t run
 ```
-(Para encerrar a simulação e retorna ao terminal, pressione `Ctrl + A`, solte e pressione a tecla `X`).
+(Para encerrar a simulação e retornar ao terminal, pressione `Ctrl + A`, solte e pressione a tecla `X`).
 
 
 ## 6. Conclusão
-O Projeto atendeu com sucesso aos requisitos estipulados, comprovando funcionamento do ZephyrOS em ambiente virtualizado. A adição das Message Queues e da Máquina de Estados operando em malha fechada validou conceitos avançados de sistemas embarcados e RTOS.
+O Projeto atendeu com sucesso aos requisitos estipulados, comprovando funcionamento do ZephyrOS em ambiente virtualizado. A adição das Message Queues, Máquina de Estados e integração GPIO validou conceitos avançados de sistemas embarcados e abstração de hardware em RTOS.
+
+## 7. Trabalhos Futuros
+Como a lógica de controle de malha fechada e a abstração de hardware via GPIO já foram implementadas e validadas no emulador, os próximos passos para escalonar a solução incluem:
+
+* **Deploy em Hardware Físico (STM32):** O código atual está pronto para ser portado para microcontroladores reais. O próximo passo é compilar a solução para uma placa física (como a família STM32), bastando alterar o target no momento do build e mapear o relé da válvula solenoide para o pino correspondente na Devicetree física.
+* **Integração IoT:** Expansão da thread consumidora para enviar os logs de telemetria lidos na Fila de Mensagens para um dashboard em nuvem ou servidor local.
