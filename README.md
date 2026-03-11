@@ -23,7 +23,7 @@ Para o desenvolvimento e simulação, o seguinte ambiente foi configurado:
 
 
 ### 3.1 Requisito Principal
-A implementação da tarefa principal foi realizada limpando e reescrevendo o arquivo `main.c` de um projeto base (https://github.com/zephyrproject-rtos/example-application). Para cumprir a exigência do uso de bibliotecas nativas, utilizou-se a macro `#include <zephyr/kernel.h>` para acesso às funções de tempo e *threads*, e `#include <zephyr/sys/printk.h>`para a impressão no console. O uso da função `printk()`foi priorizado em relação ao `printf()` tradicional do C, por ser mais leve e otimizado para o kernel do RTOS.
+A implementação da tarefa principal foi realizada limpando e reescrevendo o arquivo `main.c` de um [Projeto exemplo base](https://github.com/zephyrproject-rtos/example-application). Para cumprir a exigência do uso de bibliotecas nativas, utilizou-se a macro `#include <zephyr/kernel.h>` para acesso às funções de tempo e *threads*, e `#include <zephyr/sys/printk.h>`para a impressão no console. O uso da função `printk()`foi priorizado em relação ao `printf()` tradicional do C, por ser mais leve e otimizado para o kernel do RTOS.
 
 
 ### 3.2 Feature Adicional (Bônus)
