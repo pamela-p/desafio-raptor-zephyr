@@ -92,9 +92,3 @@ Após garantir a configuração do ecossistema Zephyr, siga os passos abaixo no 
 
 ## 6. Conclusão
 O Projeto atendeu com sucesso aos requisitos estipulados, comprovando funcionamento do ZephyrOS em ambiente virtualizado. A adição das Message Queues, Máquina de Estados e integração GPIO validou conceitos avançados de sistemas embarcados e abstração de hardware em RTOS.
-
-## 7. Trabalhos Futuros
-Como a lógica de controle de malha fechada e a abstração de hardware via GPIO já foram implementadas e validadas no emulador, os próximos passos para escalonar a solução incluem:
-
-* **Deploy em Hardware Físico (STM32):** O código atual está pronto para ser portado para microcontroladores reais. O próximo passo é compilar a solução para uma placa física (como a família STM32), bastando alterar o target no momento do build e mapear o relé da válvula solenoide para o pino correspondente na Devicetree física.
-* **Integração IoT:** Expansão da thread consumidora para enviar os logs de telemetria lidos na Fila de Mensagens para um dashboard em nuvem ou servidor local.
